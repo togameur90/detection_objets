@@ -2,190 +2,160 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>Détection d'objets</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MediaPipe Object Detector - Corrigé PC</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; padding: 10px; margin: 0; }
+        button, select, input { padding: 8px; font-size: 14px; margin: 5px; }
+        .controls { background: #eee; padding: 10px; display: inline-block; border-radius: 5px; margin-bottom: 10px; }
+        
+        /* Conteneur strict pour lier parfaitement vidéo et canvas */
+        .camera-container {
+            position: relative;
+            display: inline-block;
+            width: 640px;
+            max-width: 100%;
+            height: 480px;
+            background: #000;
+        }
+        video, canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        canvas {
+            pointer-events: none;
+        }
+    </style>
 </head>
 <body>
 
-    <h1>Détection d'objets</h1>
-
-    <!-- Contrôles de l'application -->
-    <div style="margin-bottom: 10px;">
-        <button id="startBtn">Démarrer la caméra</button>
+    <h1>Détection d'objets (Corrigé PC)</h1>
+    
+    <div>
+        <button id="startBtn">Démarrer</button>
         <button id="stopBtn" disabled>Stopper</button>
     </div>
 
-    <!-- Paramètres demandés par le sujet -->
-    <div style="margin-bottom: 15px; padding: 10px; background: #eee; display: inline-block;">
-        <label>Modèle : 
+    <div class="controls">
+        <label>Modèle :
             <select id="modelSelect">
-                <option value="efficientdet_lite0">EfficientDet-Lite0 (Rapide)</option>
-                <option value="efficientdet_lite1">EfficientDet-Lite1 (Équilibré)</option>
-                <option value="efficientdet_lite2">EfficientDet-Lite2 (Précis)</option>
+                <option value="efficientdet_lite0">EfficientDet-Lite0</option>
+                <option value="efficientdet_lite1">EfficientDet-Lite1</option>
+                <option value="efficientdet_lite2">EfficientDet-Lite2</option>
             </select>
-        </label>
+        </label><br>
         
-        <label style="margin-left: 15px;">Max Objets : 
+        <label>Max objets : 
             <input type="number" id="maxResults" value="5" min="1" max="20" style="width: 50px;">
-        </label>
+        </label><br>
 
-        <label style="margin-left: 15px;">Seuil de score minimum : 
-            <input type="range" id="scoreThreshold" min="0.1" max="0.9" step="0.05" value="0.5">
-            <span id="thresholdValue">0.5</span>
+        <label>Seuil score : 
+            <input type="range" id="scoreThreshold" min="0.1" max="0.9" step="0.1" value="0.5">
+            <span id="scoreVal">0.5</span>
         </label>
     </div>
 
-    <!-- Conteneur vidéo + canvas superposé -->
-    <div style="position: relative; width: 640px; height: 480px;">
-        <video id="webcam" autoplay playsinline style="position: absolute; top: 0; left: 0; width: 640px; height: 480px;"></video>
-        <canvas id="output_canvas" width="640" height="480" style="position: absolute; top: 0; left: 0; width: 640px; height: 480px; pointer-events: none;"></canvas>
+    <!-- Conteneur qui force la superposition exacte -->
+    <div class="camera-container">
+        <video id="webcam" autoplay playsinline></video>
+        <canvas id="canvas"></canvas>
     </div>
 
     <script type="module">
         import { ObjectDetector, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest";
 
-        let objectDetector = undefined;
-        let webcamRunning = false;
-        let lastVideoTime = -1;
-        let results = undefined;
-
+        let detector;
+        let running = false;
         const video = document.getElementById("webcam");
-        const canvas = document.getElementById("output_canvas");
-        const canvasCtx = canvas.getContext("2d");
+        const canvas = document.getElementById("canvas");
+        const ctx = canvas.getContext("2d");
 
-        const startBtn = document.getElementById("startBtn");
-        const stopBtn = document.getElementById("stopBtn");
         const modelSelect = document.getElementById("modelSelect");
         const maxResultsInput = document.getElementById("maxResults");
         const scoreThresholdInput = document.getElementById("scoreThreshold");
-        const thresholdValue = document.getElementById("thresholdValue");
+        const scoreVal = document.getElementById("scoreVal");
 
-        scoreThresholdInput.addEventListener("input", (e) => {
-            thresholdValue.textContent = e.target.value;
-            updateDetectorOptions();
-        });
+        scoreThresholdInput.oninput = (e) => {
+            scoreVal.innerText = e.target.value;
+        };
 
-        maxResultsInput.addEventListener("change", () => {
-            updateDetectorOptions();
-        });
-
-        modelSelect.addEventListener("change", () => {
-            initObjectDetector();
-        });
-
-        // 1. Initialisation de l'Object Detector
-        async function initObjectDetector() {
-            const vision = await FilesetResolver.forVisionTasks(
-                "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
-            );
-
-            // Choix du fichier de modèle selon la liste déroulante
-            const modelName = modelSelect.value; // ex: efficientdet_lite0
-            const modelAssetPath = `https://storage.googleapis.com/mediapipe-models/object_detector/${modelName}/float16/1/${modelName}.tflite`;
-
-            objectDetector = await ObjectDetector.createFromOptions(vision, {
+        async function initDetector() {
+            const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm");
+            
+            const modelName = modelSelect.value;
+            detector = await ObjectDetector.createFromOptions(vision, {
                 baseOptions: {
-                    modelAssetPath: modelAssetPath,
+                    modelAssetPath: `https://storage.googleapis.com/mediapipe-models/object_detector/${modelName}/float16/1/${modelName}.tflite`,
                     delegate: "GPU"
                 },
                 runningMode: "VIDEO",
                 maxResults: parseInt(maxResultsInput.value),
                 scoreThreshold: parseFloat(scoreThresholdInput.value)
             });
-            startBtn.disabled = false;
-            console.log("ObjectDetector chargé avec le modèle :", modelName);
+            document.getElementById("startBtn").disabled = false;
         }
 
-        // Mettre à jour les options sans tout réinitialiser si possible, ou recréer
-        async function updateDetectorOptions() {
-            if (!objectDetector) return;
-            // On recrée l'instance avec les nouveaux paramètres de seuil et de max results
-            await initObjectDetector();
-        }
+        modelSelect.onchange = initDetector;
+        maxResultsInput.onchange = initDetector;
+        scoreThresholdInput.onchange = initDetector;
 
-        initObjectDetector();
+        initDetector();
 
-        // 2. Démarrage de la caméra (compatible smartphone via environment)
-        async function enableCam() {
-            if (!objectDetector) return;
-
-            webcamRunning = true;
-            startBtn.disabled = true;
-            stopBtn.disabled = false;
-
-            const constraints = {
-                video: {
-                    width: 640,
-                    height: 480,
-                    facingMode: "environment" // Utilise la caméra arrière sur smartphone si disponible
-                }
+        document.getElementById("startBtn").onclick = async () => {
+            // Sur PC, on retire le facingMode "environment" (qui plante parfois sur webcam PC)
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+            video.srcObject = stream;
+            running = true;
+            document.getElementById("startBtn").disabled = true;
+            document.getElementById("stopBtn").disabled = false;
+            
+            video.onloadedmetadata = () => {
+                // On fixe la résolution interne du canvas à celle de la vidéo reçue
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                predict();
             };
+        };
 
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia(constraints);
-                video.srcObject = stream;
-                video.addEventListener("loadeddata", predictWebcam);
-            } catch (err) {
-                alert("Erreur d'accès à la webcam : " + err.message);
-                startBtn.disabled = false;
-                stopBtn.disabled = true;
+        document.getElementById("stopBtn").onclick = () => {
+            running = false;
+            if (video.srcObject) {
+                video.srcObject.getTracks().forEach(t => t.stop());
             }
-        }
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            document.getElementById("startBtn").disabled = false;
+            document.getElementById("stopBtn").disabled = true;
+        };
 
-        // 3. Boucle de détection sur le flux vidéo
-        async function predictWebcam() {
-            if (!webcamRunning) return;
+        async function predict() {
+            if (!running) return;
+            const results = detector.detectForVideo(video, performance.now());
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            if (results.detections) {
+                for (let d of results.detections) {
+                    const box = d.boundingBox;
+                    const name = d.categories[0].categoryName;
+                    const score = Math.round(d.categories[0].score * 100);
 
-            if (video.currentTime !== lastVideoTime) {
-                lastVideoTime = video.currentTime;
-                results = objectDetector.detectForVideo(video, Date.now());
+                    // 1. Boîte englobante
+                    ctx.strokeStyle = "#00FF00";
+                    ctx.lineWidth = 3;
+                    ctx.strokeRect(box.originX, box.originY, box.width, box.height);
 
-                // Nettoyage du canvas
-                canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
-
-                // Affichage des boîtes englobantes, catégories et scores
-                if (results.detections) {
-                    for (const detection of results.detections) {
-                        const bbox = detection.boundingBox;
-                        const category = detection.categories[0];
-                        const categoryName = category.categoryName;
-                        const score = Math.round(category.score * 100);
-
-                        // Dessiner la boîte englobante (Bounding Box)
-                        canvasCtx.strokeStyle = "#00FF00";
-                        canvasCtx.lineWidth = 3;
-                        canvasCtx.strokeRect(bbox.originX, bbox.originY, bbox.width, bbox.height);
-
-                        // Dessiner le fond du texte pour la lisibilité
-                        canvasCtx.fillStyle = "rgba(0, 255, 0, 0.7)";
-                        const text = `${categoryName} (${score}%)`;
-                        canvasCtx.font = "16px Arial";
-                        const textWidth = canvasCtx.measureText(text).width;
-                        canvasCtx.fillRect(bbox.originX, bbox.originY > 20 ? bbox.originY - 20 : 0, textWidth + 10, 20);
-
-                        // Écrire le texte (Nom + Score)
-                        canvasCtx.fillStyle = "#000000";
-                        canvasCtx.fillText(text, bbox.originX + 5, bbox.originY > 20 ? bbox.originY - 5 : 15);
-                    }
+                    // 2. Affichage du score et du nom
+                    ctx.fillStyle = "#00FF00";
+                    ctx.font = "16px Arial";
+                    ctx.fillText(`${name} (${score}%)`, box.originX, box.originY > 20 ? box.originY - 5 : 20);
                 }
             }
-
-            if (webcamRunning) {
-                requestAnimationFrame(predictWebcam);
-            }
+            requestAnimationFrame(predict);
         }
-
-        startBtn.addEventListener("click", enableCam);
-
-        stopBtn.addEventListener("click", () => {
-            webcamRunning = false;
-            if (video.srcObject) {
-                video.srcObject.getTracks().forEach(track => track.stop());
-            }
-            video.srcObject = null;
-            canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
-            startBtn.disabled = false;
-            stopBtn.disabled = true;
-        });
     </script>
 </body>
 </html>
