@@ -3,13 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MediaPipe Object Detector - Corrigé PC</title>
+    <title>Détection d'objets</title>
     <style>
         body { font-family: sans-serif; text-align: center; padding: 10px; margin: 0; }
         button, select, input { padding: 8px; font-size: 14px; margin: 5px; }
         .controls { background: #eee; padding: 10px; display: inline-block; border-radius: 5px; margin-bottom: 10px; }
         
-        /* Conteneur strict pour lier parfaitement vidéo et canvas */
         .camera-container {
             position: relative;
             display: inline-block;
@@ -33,7 +32,7 @@
 </head>
 <body>
 
-    <h1>Détection d'objets (Corrigé PC)</h1>
+    <h1>Détection d'objets</h1>
     
     <div>
         <button id="startBtn">Démarrer</button>
@@ -59,7 +58,6 @@
         </label>
     </div>
 
-    <!-- Conteneur qui force la superposition exacte -->
     <div class="camera-container">
         <video id="webcam" autoplay playsinline></video>
         <canvas id="canvas"></canvas>
@@ -106,7 +104,6 @@
         initDetector();
 
         document.getElementById("startBtn").onclick = async () => {
-            // Sur PC, on retire le facingMode "environment" (qui plante parfois sur webcam PC)
             const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
             video.srcObject = stream;
             running = true;
@@ -114,7 +111,6 @@
             document.getElementById("stopBtn").disabled = false;
             
             video.onloadedmetadata = () => {
-                // On fixe la résolution interne du canvas à celle de la vidéo reçue
                 canvas.width = video.videoWidth;
                 canvas.height = video.videoHeight;
                 predict();
@@ -143,12 +139,10 @@
                     const name = d.categories[0].categoryName;
                     const score = Math.round(d.categories[0].score * 100);
 
-                    // 1. Boîte englobante
                     ctx.strokeStyle = "#00FF00";
                     ctx.lineWidth = 3;
                     ctx.strokeRect(box.originX, box.originY, box.width, box.height);
 
-                    // 2. Affichage du score et du nom
                     ctx.fillStyle = "#00FF00";
                     ctx.font = "16px Arial";
                     ctx.fillText(`${name} (${score}%)`, box.originX, box.originY > 20 ? box.originY - 5 : 20);
